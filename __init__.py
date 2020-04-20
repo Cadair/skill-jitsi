@@ -9,6 +9,13 @@ from opsdroid.connector.matrix.events import MatrixStateEvent
 from opsdroid.connector.matrix import ConnectorMatrix
 from opsdroid.connector.slack import ConnectorSlack
 
+try:
+    from opsdroid.events import PinMessage, UnpinMessage
+    PINNED_MESSAGES = True
+except Exception:
+    PINNED_MESSAGES = False
+    PinMessage = UnpinMessge = object
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,6 +57,9 @@ class JitsiSkill(Skill):
         Logic to decide what connector we send the message on, and then to pin it.
         """
         message_id = await message.respond(Message(message_content))
+        message_id = message_id["event_id"]
+        if PINNED_MESSAGES:
+            await message.respond(PinMessage(linked_event=message_id))
 
     @staticmethod
     def get_random_slug():
@@ -101,7 +111,7 @@ class JitsiSkill(Skill):
 
         return await self.send_and_pin_message(message, message_content)
 
-    @match_regex(r"!startjitsi( (?P<callid>[^\s]+))?")
+    @match_regex(r"!jitsi( (?P<callid>[^\s]+))?")
     async def start_jitsi_call(self, message):
         """
         Respond to a command to start a jitsi call.
@@ -136,8 +146,9 @@ class JitsiSkill(Skill):
         """
         Unpin message and remove widget.
         """
-        if isinstance(message.connector, ConnectorMatrix):
-            message.respond("Can only remove jitsi calls when using matrix.")
+        if not isinstance(message.connector, ConnectorMatrix):
+            await message.respond("Can only remove jitsi calls when using matrix.")
+            return
 
         active_call = await self.get_active_jitsi_widget(message.target, message.connector)
 
