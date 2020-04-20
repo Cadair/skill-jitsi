@@ -60,7 +60,10 @@ class JitsiSkill(Skill):
         message_id = await message.respond(Message(message_content))
         message_id = message_id["event_id"]
         if PINNED_MESSAGES:
-            await message.respond(PinMessage(linked_event=message_id))
+            try:
+                await message.respond(PinMessage(linked_event=message_id))
+            except Exception:
+                _LOGGER.exception("Failed to pin the message.")
 
     @staticmethod
     def get_random_slug():
