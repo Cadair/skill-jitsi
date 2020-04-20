@@ -127,6 +127,7 @@ class JitsiSkill(Skill):
         """
         if not self.process_message(message):
             return
+
         if isinstance(message.connector, ConnectorMatrix):
             widget = await self.get_active_jitsi_widget(message.target, message.connector)
             if widget:
@@ -138,7 +139,12 @@ class JitsiSkill(Skill):
 
         domain = self.base_jitsi_domain
         callid = message.regex["callid"]
+
         if callid:
+            # Strip out the stupid slack link syntax the bridge leaves in.
+            if callid.startswith("<"):
+                callid = callid[1:-1].split("|")[0]
+
             conference_id = callid
             call_url = urlparse(callid)
             if call_url.scheme:
