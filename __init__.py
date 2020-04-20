@@ -98,7 +98,7 @@ class JitsiSkill(Skill):
             slug = response.data["channel"]["name"]
             used_room_name = True
 
-        slug = name.replace(" ", "").replace("-", "").replace("_", "")
+        slug = name.replace(" ", "_")
 
         if not slug:
             slug = self.get_random_slug()
