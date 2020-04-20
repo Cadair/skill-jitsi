@@ -169,9 +169,9 @@ class JitsiSkill(Skill):
         if active_call:
             state_key = active_call["state_key"]
 
-            await self.opsdroid.send(MatrixStateEvent("im.vector.modular.widgets",
-                                                      content={},
-                                                      state_key=state_key))
+            await message.respond(MatrixStateEvent("im.vector.modular.widgets",
+                                                   content={},
+                                                   state_key=state_key))
 
     @match_event(MatrixStateEvent)
     async def handle_jitsi_widget(self, event):
