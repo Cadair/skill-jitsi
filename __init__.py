@@ -150,6 +150,8 @@ class JitsiSkill(Skill):
             if call_url.scheme:
                 domain = call_url.netloc
                 conference_id = call_url.path.replace("/", "")
+            elif self.conference_prefix:
+                conference_id = f"{self.conference_prefix}_{callid}"
         else:
             conference_id = await self.get_call_name(message)
 
