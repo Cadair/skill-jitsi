@@ -150,7 +150,8 @@ class JitsiSkill(Skill):
         await self.send_message_about_conference(message, conference_id, domain)
 
         if isinstance(message.connector, ConnectorMatrix):
-            await self.create_jitsi_widget(conference_id, domain)
+            state_event = await self.create_jitsi_widget(conference_id, domain)
+            await message.respond(state_event)
 
     @match_regex(r"!endjitsi")
     async def end_jitsi_call(self, message):
@@ -214,13 +215,11 @@ class JitsiSkill(Skill):
             "url": f"https://riot.im/app/jitsi.html?confId={conference_id}#conferenceDomain=$domain&conferenceId=$conferenceId&isAudioOnly=$isAudioOnly&displayName=$matrix_display_name&avatarUrl=$matrix_avatar_url&userId=$matrix_user_id",
         }
 
-        await self.opsdroid.send(
-            MatrixStateEvent(
+        return MatrixStateEvent(
                 "im.vector.modular.widgets",
                 content=content,
                 state_key=f"jitsi_{conference_id}",
             )
-        )
 
     async def get_active_jitsi_widget(self, room_id, connector):
         all_state = await connector.connection.get_room_state(room_id)
