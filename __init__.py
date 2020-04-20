@@ -51,6 +51,7 @@ class JitsiSkill(Skill):
         self.conference_prefix = config.get("conference_prefix", "")
         self.prefix_room_name = config.get("prefix_room_name", False)
         self.use_room_name = config.get("use_room_name", True)
+        self.matrix_only = config.get("listen_matrix_only", False)
 
     async def send_and_pin_message(self, message, message_content):
         """
@@ -65,6 +66,11 @@ class JitsiSkill(Skill):
     def get_random_slug():
         r = random_word.RandomWords()
         return "".join(r.get_random_words(limit=3)).replace("-", "")
+
+    def process_message(self, message):
+        if self.matrix_only and not isinstance(message.connector, ConnectorMatrix):
+            return False
+        return True
 
     async def get_call_name(self, message):
         """
@@ -116,6 +122,8 @@ class JitsiSkill(Skill):
         """
         Respond to a command to start a jitsi call.
         """
+        if not self.process_message(message):
+            return
         if isinstance(message.connector, ConnectorMatrix):
             widget = await self.get_active_jitsi_widget(message.target, message.connector)
             if widget:
@@ -146,6 +154,8 @@ class JitsiSkill(Skill):
         """
         Unpin message and remove widget.
         """
+        if not self.process_message(message):
+            return
         if not isinstance(message.connector, ConnectorMatrix):
             await message.respond("Can only remove jitsi calls when using matrix.")
             return
