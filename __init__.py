@@ -1,11 +1,24 @@
 import logging
+from urllib.parse import urlparse
 
 import random_word
 from opsdroid.matchers import match_event, match_regex
 from opsdroid.skill import Skill
+from opsdroid.events import OpsdroidStarted, Message
+from opsdroid.connector.matrix.events import MatrixStateEvent
+from opsdroid.connector.matrix import ConnectorMatrix
+from opsdroid.connector.slack import ConnectorSlack
 
 
 _LOGGER = logging.getLogger(__name__)
+
+"""
+post-pyastro TODO:
+
+* Use room state to get the default jitsi URL
+* Use previous state to ensure the right conf gets removed (support multiple widgets)
+* Allow non-matrix mode
+"""
 
 
 class JitsiSkill(Skill):
@@ -26,41 +39,17 @@ class JitsiSkill(Skill):
     """
 
     def __init__(self, opsdroid, config):
-        self.bridged_mode = config.get("bridged_mode", False)
-        self.base_jitsi_url = config.get("base_jitsi_url", "https://meet.jit.si")
+        super().__init__(opsdroid, config)
+        self.base_jitsi_domain = config.get("base_jitsi_domain", "meet.jit.si")
         self.conference_prefix = config.get("conference_prefix", "")
         self.prefix_room_name = config.get("prefix_room_name", False)
         self.use_room_name = config.get("use_room_name", True)
-        self.matrix_connector = None
-        self.slack_connector = None
 
-    @match_event(OpsdroidStarted)
-    def configure(self, started):
-        """
-        Inspect the configured connectors and work out what mode we are in.
-        """
-        self.matrix_connector = self.opsdroid._connector_names.get("matrix", None)
-        self.slack_connector = self.opsdroid._connector_names.get("slack", None)
-
-        if self.bridged_mode and (self.matrix_connector is None or self.slack_connector is None):
-            raise ValueError("Jitsi skill is misconfigured. Bridged mode requires both a slack and matrix connector to be configured.")
-
-    def process_message(self, message):
-        """
-        Logic to determine if we process a message.
-
-        If bridged mode is true we only process messages from matrix.
-        """
-        if self.bridged_mode and message.connector is not self.matrix_connector:
-            _LOGGER.debug(f"Skipping message from {message.connector} as we are in bridge mode and only listening to matrix messages.")
-            return False
-        else:
-            return True
-
-    def send_and_pin_message(self):
+    async def send_and_pin_message(self, message, message_content):
         """
         Logic to decide what connector we send the message on, and then to pin it.
         """
+        message_id = await message.respond(Message(message_content))
 
     @staticmethod
     def get_random_slug():
@@ -77,14 +66,17 @@ class JitsiSkill(Skill):
         slug = ""
         used_room_name = False
 
-        if self.use_room_name and self.message.connector is self.matrix_connector:
+        if self.use_room_name and isinstance(message.connector, ConnectorMatrix):
             used_room_name = True
-            room_id = self.matrix_connector.lookup_target(message.target)
-            name = await self.matrix_api.get_room_name(room_id)
+            room_id = message.connector.lookup_target(message.target)
+            name = await message.connector.connection.get_room_name(room_id)
+            name = name.get("name", "")
 
-        if self.use_room_name and self.message.connector is self.slack_connector:
-            response = await self.slack_connector.slack.channels_info(channel=message.target)
-            slug = response.data['channel']['name']
+        if self.use_room_name and isinstance(message.connector, ConnectorSlack):
+            response = await self.slack_connector.slack.channels_info(
+                channel=message.target
+            )
+            slug = response.data["channel"]["name"]
             used_room_name = True
 
         slug = name.replace(" ", "").replace("-", "").replace("_", "")
@@ -92,29 +84,133 @@ class JitsiSkill(Skill):
         if not slug:
             slug = self.get_random_slug()
 
-        if self.conference_prefix and ((used_room_name and self.prefix_room_name) or not used_room_name):
+        if self.conference_prefix and (
+            (used_room_name and self.prefix_room_name) or not used_room_name
+        ):
             slug = f"{self.conference_prefix}_{slug}"
 
         return slug
 
-    @match_regex()
+    async def send_message_about_conference(self, message, conference_id, domain):
+        """
+        Tell the world about your new conf.
+        """
+        message_content = (
+            f"This room's Jitsi URL is: https://{domain}/{conference_id}"
+        )
+
+        return await self.send_and_pin_message(message, message_content)
+
+    @match_regex(r"!startjitsi( (?P<callid>[^\s]+))?")
     async def start_jitsi_call(self, message):
         """
         Respond to a command to start a jitsi call.
         """
-        if not self.process_message(message):
-            return
+        if isinstance(message.connector, ConnectorMatrix):
+            widget = await self.get_active_jitsi_widget(message.target, message.connector)
+            if widget:
+                data = widget["content"]["data"]
+                await self.send_message_about_conference(message,
+                                                         data["conferenceId"],
+                                                         data["domain"])
+                return
 
-        conference_id = await self.get_call_name(message)
+        domain = self.base_jitsi_domain
+        callid = message.regex["callid"]
+        if callid:
+            conference_id = callid
+            call_url = urlparse(callid)
+            if call_url.scheme:
+                domain = call_url.netloc
+                conference_id = call_url.path.replace("/", "")
+        else:
+            conference_id = await self.get_call_name(message)
 
-    @match_regex()
-    async def end_jitsi_call(self):
+        await self.send_message_about_conference(message, conference_id, domain)
+
+        if isinstance(message.connector, ConnectorMatrix):
+            await self.create_jitsi_widget(conference_id, domain)
+
+    @match_regex(r"!endjitsi")
+    async def end_jitsi_call(self, message):
         """
         Unpin message and remove widget.
         """
+        if isinstance(message.connector, ConnectorMatrix):
+            message.respond("Can only remove jitsi calls when using matrix.")
 
-    @match_event(UnknownMatrixEvent)
-    async def handle_jitsi_widget(self):
+        active_call = await self.get_active_jitsi_widget(message.target, message.connector)
+
+        if active_call:
+            state_key = active_call["state_key"]
+
+            await self.opsdroid.send(MatrixStateEvent("im.vector.modular.widgets",
+                                                      content={},
+                                                      state_key=state_key))
+
+    @match_event(MatrixStateEvent)
+    async def handle_jitsi_widget(self, event):
         """
         Parse a new jitsi widget and send the details to the room.
         """
+        if (
+            event.event_type != "im.vector.modular.widgets"
+            or event.content.get("type") != "jitsi"
+            or not event.state_key.startswith("jitsi")
+        ):
+            return
+
+        data = event.content["data"]
+        await self.send_message_about_conference(event, data["conferenceId"], data["domain"])
+
+    @match_event(MatrixStateEvent)
+    async def handle_remove_jitsi_widget(self, event):
+        """
+        Parse a new jitsi widget and send the details to the room.
+        """
+        if (
+            event.event_type != "im.vector.modular.widgets"
+            or not event.state_key.startswith("jitsi")
+            or event.content
+        ):
+            return
+
+        return await self.end_jitsi_call(event)
+
+    async def create_jitsi_widget(self, conference_id, domain=None):
+        domain = domain or self.base_jitsi_domain
+        content = {
+            "type": "jitsi",
+            "name": "Jitsi",
+            "data": {
+                "conferenceId": conference_id,
+                "isAudioOnly": False,
+                "domain": domain,
+            },
+            "url": f"https://riot.im/app/jitsi.html?confId={conference_id}#conferenceDomain=$domain&conferenceId=$conferenceId&isAudioOnly=$isAudioOnly&displayName=$matrix_display_name&avatarUrl=$matrix_avatar_url&userId=$matrix_user_id",
+        }
+
+        await self.opsdroid.send(
+            MatrixStateEvent(
+                "im.vector.modular.widgets",
+                content=content,
+                state_key=f"jitsi_{conference_id}",
+            )
+        )
+
+    async def get_active_jitsi_widget(self, room_id, connector):
+        all_state = await connector.connection.get_room_state(room_id)
+        jitsi_widgets = list(
+            filter(
+                lambda x: x["type"] == "im.vector.modular.widgets" and x["content"],
+                all_state,
+            )
+        )
+
+        if not jitsi_widgets:
+            return
+
+        if len(jitsi_widgets) > 1:
+            raise Exception("Oh god I don't know what to do now.")
+
+        return jitsi_widgets[0]
