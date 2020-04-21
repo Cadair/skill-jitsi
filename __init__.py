@@ -248,8 +248,9 @@ class JitsiSkill(Skill):
         """
         Join all rooms on invite.
         """
-        _LOGGER.info("Got room invite for {invite.target}.")
+        _LOGGER.info(f"Got room invite for {invite.target}.")
         if self.join_when_invited:
+            _LOGGER.debug(f"Joining room from invite.")
             await invite.respond(JoinRoom())
 
     async def create_jitsi_widget(self, conference_id, domain=None):
