@@ -8,7 +8,7 @@ from matrix_client.errors import MatrixRequestError
 from opsdroid.connector.matrix import ConnectorMatrix
 from opsdroid.connector.matrix.events import MatrixStateEvent
 from opsdroid.connector.slack import ConnectorSlack
-from opsdroid.events import Message, OpsdroidStarted
+from opsdroid.events import Message, OpsdroidStarted, UserInvite, JoinRoom
 from opsdroid.matchers import match_event, match_regex
 from opsdroid.skill import Skill
 
@@ -56,6 +56,7 @@ class JitsiSkill(Skill):
         self.prefix_room_name = config.get("prefix_room_name", False)
         self.use_room_name = config.get("use_room_name", True)
         self.matrix_only = config.get("listen_matrix_only", False)
+        self.join_when_invited = config.get("join_when_invited", False)
 
     async def send_and_pin_message(self, message, message_content):
         """
@@ -241,6 +242,15 @@ class JitsiSkill(Skill):
             return
 
         return await self.end_jitsi_call(event)
+
+    @match_event(UserInvite)
+    async def on_invite_to_room(self, invite):
+        """
+        Join all rooms on invite.
+        """
+        _LOGGER.info("Got room invite for {invite.target}.")
+        if self.join_when_invited:
+            await invite.respond(JoinRoom())
 
     async def create_jitsi_widget(self, conference_id, domain=None):
         domain = domain or self.base_jitsi_domain

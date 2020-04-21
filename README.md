@@ -42,4 +42,6 @@ skills:
     # Only respond to commands on the matrix connector. 
     # (Useful if you are bridging and your opsdroid is connected to both sides of the bridge)
     listen_matrix_only: false
+    # Join rooms when invited
+    join_when_invited: false
 ```
