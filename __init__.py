@@ -2,15 +2,18 @@ import logging
 from urllib.parse import urlparse
 
 import random_word
+from matrix_client.errors import MatrixRequestError
+
+from opsdroid.connector.matrix import ConnectorMatrix
+from opsdroid.connector.matrix.events import MatrixStateEvent
+from opsdroid.connector.slack import ConnectorSlack
+from opsdroid.events import Message, OpsdroidStarted
 from opsdroid.matchers import match_event, match_regex
 from opsdroid.skill import Skill
-from opsdroid.events import OpsdroidStarted, Message
-from opsdroid.connector.matrix.events import MatrixStateEvent
-from opsdroid.connector.matrix import ConnectorMatrix
-from opsdroid.connector.slack import ConnectorSlack
 
 try:
     from opsdroid.events import PinMessage, UnpinMessage
+
     PINNED_MESSAGES = True
 except Exception:
     PINNED_MESSAGES = False
@@ -111,12 +114,7 @@ class JitsiSkill(Skill):
         return slug
 
     async def send_message_about_conference(self, message, conference_id, domain):
-        """
-        Tell the world about your new conf.
-        """
-        message_content = (
-            f"This room's Jitsi URL is: https://{domain}/{conference_id}"
-        )
+        message_content = f"This room's Jitsi URL is: https://{domain}/{conference_id}"
 
         return await self.send_and_pin_message(message, message_content)
 
@@ -129,12 +127,14 @@ class JitsiSkill(Skill):
             return
 
         if isinstance(message.connector, ConnectorMatrix):
-            widget = await self.get_active_jitsi_widget(message.target, message.connector)
+            widget = await self.get_active_jitsi_widget(
+                message.target, message.connector
+            )
             if widget:
                 data = widget["content"]["data"]
-                await self.send_message_about_conference(message,
-                                                         data["conferenceId"],
-                                                         data["domain"])
+                await self.send_message_about_conference(
+                    message, data["conferenceId"], data["domain"]
+                )
                 return
 
         domain = self.base_jitsi_domain
@@ -159,7 +159,18 @@ class JitsiSkill(Skill):
 
         if isinstance(message.connector, ConnectorMatrix):
             state_event = await self.create_jitsi_widget(conference_id, domain)
-            await message.respond(state_event)
+            try:
+                await message.respond(state_event)
+            except MatrixRequestError as e:
+                if e.code == 403:
+                    if "M_FORBIDDEN" in e.content:
+                        await message.respond(
+                            Message(
+                                "I am sorry, I don't have permission to add widgets to this room."
+                            )
+                        )
+                        return
+                _LOGGER.exception("Failed to add Jitsi widget to room {message.target}")
 
     @match_regex(r"!endjitsi")
     async def end_jitsi_call(self, message):
@@ -172,14 +183,31 @@ class JitsiSkill(Skill):
             await message.respond("Can only remove jitsi calls when using matrix.")
             return
 
-        active_call = await self.get_active_jitsi_widget(message.target, message.connector)
+        active_call = await self.get_active_jitsi_widget(
+            message.target, message.connector
+        )
 
         if active_call:
             state_key = active_call["state_key"]
 
-            await message.respond(MatrixStateEvent("im.vector.modular.widgets",
-                                                   content={},
-                                                   state_key=state_key))
+            try:
+                await message.respond(
+                    MatrixStateEvent(
+                        "im.vector.modular.widgets", content={}, state_key=state_key
+                    )
+                )
+            except MatrixRequestError as e:
+                if e.code == 403:
+                    if "M_FORBIDDEN" in e.content:
+                        await message.respond(
+                            Message(
+                                "I am sorry, I don't have permission to remove widgets from this room."
+                            )
+                        )
+                        return
+                _LOGGER.exception(
+                    "Failed to remove Jitsi widget from room {message.target}"
+                )
 
     @match_event(MatrixStateEvent)
     async def handle_jitsi_widget(self, event):
@@ -194,7 +222,9 @@ class JitsiSkill(Skill):
             return
 
         data = event.content["data"]
-        await self.send_message_about_conference(event, data["conferenceId"], data["domain"])
+        await self.send_message_about_conference(
+            event, data["conferenceId"], data["domain"]
+        )
 
     @match_event(MatrixStateEvent)
     async def handle_remove_jitsi_widget(self, event):
@@ -224,10 +254,10 @@ class JitsiSkill(Skill):
         }
 
         return MatrixStateEvent(
-                "im.vector.modular.widgets",
-                content=content,
-                state_key=f"jitsi_{conference_id}",
-            )
+            "im.vector.modular.widgets",
+            content=content,
+            state_key=f"jitsi_{conference_id}",
+        )
 
     async def get_active_jitsi_widget(self, room_id, connector):
         all_state = await connector.connection.get_room_state(room_id)

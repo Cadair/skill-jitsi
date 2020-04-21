@@ -2,6 +2,8 @@
 
 An opsdroid skill for quickly sharing Jitsi call URLs.
 
+This skill currently requires the master branch of opsdroid for reacting to a new Jitsi widget on matrix.
+
 This skill provides two commands:
 
 `!jitsi` which optionally takes one argument, which is either the URL to a jitsi call or the name of the conference for the configured domain. It will then post a URL for the conference to the channel, and if the matrix connector is configured add a Jitsi widget to the room. If no arguments are given the room name will be used for the conference id.
