@@ -1,3 +1,4 @@
+import re
 import logging
 from urllib.parse import urlparse
 
@@ -102,6 +103,7 @@ class JitsiSkill(Skill):
             used_room_name = True
 
         slug = name.replace(" ", "_")
+        slug = re.sub('[^a-zA-Z0-9_-]', '', slug)
 
         if not slug:
             slug = self.get_random_slug()
