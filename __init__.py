@@ -90,18 +90,21 @@ class JitsiSkill(Skill):
         slug = ""
         used_room_name = False
 
-        if self.use_room_name and isinstance(message.connector, ConnectorMatrix):
-            used_room_name = True
-            room_id = message.connector.lookup_target(message.target)
-            name = await message.connector.connection.get_room_name(room_id)
-            name = name.get("name", "")
+        try:
+            if self.use_room_name and isinstance(message.connector, ConnectorMatrix):
+                used_room_name = True
+                room_id = message.connector.lookup_target(message.target)
+                name = await message.connector.connection.get_room_name(room_id)
+                name = name.get("name", "")
 
-        if self.use_room_name and isinstance(message.connector, ConnectorSlack):
-            response = await self.slack_connector.slack.channels_info(
-                channel=message.target
-            )
-            slug = response.data["channel"]["name"]
-            used_room_name = True
+            if self.use_room_name and isinstance(message.connector, ConnectorSlack):
+                response = await self.slack_connector.slack.channels_info(
+                    channel=message.target
+                )
+                slug = response.data["channel"]["name"]
+                used_room_name = True
+        except Exception:
+            _LOGGER.info("Could not room name for conference.")
 
         slug = name.replace(" ", "_")
         slug = re.sub('[^a-zA-Z0-9_-]', '', slug)
