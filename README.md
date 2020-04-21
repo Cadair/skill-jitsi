@@ -15,6 +15,35 @@ Also if a Jitsi widget is added to a matrix room the plain URL for that conferen
 The main objective of this skill is to facilitate the use of jitsi calls across bridges, but might also be useful if you want to add custom call URLs.
 
 
+## Quickstart
+
+To use this bot first [install opsdroid](https://docs.opsdroid.dev/en/stable/installation.html) then write a `configuration.yaml` file with the following content, adjusting as needed.
+
+```
+## Parsers
+parsers:
+  regex:
+    enabled: true
+
+connectors:
+  matrix:
+    mxid: "@account:server.com"
+    password: "mypassword"
+    homeserver: "https://matrix.org"
+    rooms:
+      "main": "#room:server.com"
+    nick: Jitsi Bot
+
+skills:
+  jitsi:
+    repo: https://github.com/Cadair/skill-jitsi.git
+```
+
+then run `opsdroid start` in the same directory as the `configuration.yaml` file.
+
+You should also be able to use the message features of this bot with any connector, not just matrix.
+
+
 ## Configuration
 
 The minimal config to use this skill is:
