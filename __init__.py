@@ -107,7 +107,7 @@ class JitsiSkill(Skill):
             _LOGGER.info("Could not room name for conference.")
 
         slug = slug.replace(" ", "_")
-        slug = re.sub('[^a-zA-Z0-9_-]', '', slug)
+        slug = re.sub("[^a-zA-Z0-9_-]", "", slug)
 
         if not slug:
             slug = self.get_random_slug()
@@ -279,7 +279,9 @@ class JitsiSkill(Skill):
         all_state = await connector.connection.get_room_state(room_id)
         jitsi_widgets = list(
             filter(
-                lambda x: x["type"] == "im.vector.modular.widgets" and x["content"],
+                lambda x: x["type"] == "im.vector.modular.widgets"
+                and x["content"]
+                and x["content"].get("type", "") == "jitsi",
                 all_state,
             )
         )
