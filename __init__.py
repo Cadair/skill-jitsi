@@ -117,6 +117,7 @@ class JitsiSkill(Skill):
         return await self.send_and_pin_message(message, message_content)
 
     @match_regex(r"!jitsi( (?P<callid>[^\s]+))?")
+    @memory_in_event_room
     async def start_jitsi_call(self, message):
         """
         Respond to a command to start a jitsi call.
@@ -124,7 +125,18 @@ class JitsiSkill(Skill):
         if not self.process_message(message):
             return
 
+        domain = self.base_jitsi_domain
+        callid = message.regex["callid"]
+        conference_id = None
+
         if isinstance(message.connector, ConnectorMatrix):
+            jitsi_url = await self.opsdroid.memory.get("jitsi_url")
+            _LOGGER.debug(jitsi_url)
+            if jitsi_url is not None:
+                parsed_url = urlparse(jitsi_url)
+                domain = parsed_url.netloc
+                conference_id = parsed_url.path
+
             widget = await self.get_active_jitsi_widget(
                 message.target, message.connector
             )
@@ -134,9 +146,6 @@ class JitsiSkill(Skill):
                     message, data["conferenceId"], data["domain"]
                 )
                 return
-
-        domain = self.base_jitsi_domain
-        callid = message.regex["callid"]
 
         if callid:
             # Strip out the stupid slack link syntax the bridge leaves in.
