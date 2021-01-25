@@ -1,25 +1,16 @@
-import re
 import logging
+import re
 from urllib.parse import urlparse
 
 import random_word
-from matrix_client.errors import MatrixRequestError
-
-from opsdroid.connector.matrix import ConnectorMatrix
+from opsdroid.connector.matrix.connector import (ConnectorMatrix,
+                                                 MatrixException)
 from opsdroid.connector.matrix.events import MatrixStateEvent
 from opsdroid.connector.slack import ConnectorSlack
-from opsdroid.events import Message, OpsdroidStarted, UserInvite, JoinRoom
+from opsdroid.events import (JoinRoom, Message, PinMessage, UnpinMessage,
+                             UserInvite)
 from opsdroid.matchers import match_event, match_regex
 from opsdroid.skill import Skill
-
-try:
-    from opsdroid.events import PinMessage, UnpinMessage
-
-    PINNED_MESSAGES = True
-except Exception:
-    PINNED_MESSAGES = False
-    PinMessage = UnpinMessge = object
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,17 +49,17 @@ class JitsiSkill(Skill):
         self.matrix_only = config.get("listen_matrix_only", False)
         self.join_when_invited = config.get("join_when_invited", False)
 
-    async def send_and_pin_message(self, message, message_content):
+    @staticmethod
+    async def send_and_pin_message(message, message_content):
         """
         Logic to decide what connector we send the message on, and then to pin it.
         """
         message_id = await message.respond(Message(message_content))
-        message_id = message_id["event_id"]
-        if PINNED_MESSAGES:
-            try:
-                await message.respond(PinMessage(linked_event=message_id))
-            except Exception:
-                _LOGGER.exception("Failed to pin the message.")
+        message_id = message_id.event_id
+        try:
+            await message.respond(PinMessage(linked_event=message_id))
+        except Exception:
+            _LOGGER.exception("Failed to pin the message.")
 
     @staticmethod
     def get_random_slug():
@@ -94,11 +85,12 @@ class JitsiSkill(Skill):
             if self.use_room_name and isinstance(message.connector, ConnectorMatrix):
                 used_room_name = True
                 room_id = message.connector.lookup_target(message.target)
-                slug = await message.connector.connection.get_room_name(room_id)
+                slug = await message.connector.connection.room_get_state_event(room_id, "m.room.name")
+                slug = slug.content
                 slug = slug.get("name", "")
 
             if self.use_room_name and isinstance(message.connector, ConnectorSlack):
-                response = await self.slack_connector.slack.channels_info(
+                response = await message.connector.slack.channels_info(
                     channel=message.target
                 )
                 slug = response.data["channel"]["name"]
@@ -167,15 +159,14 @@ class JitsiSkill(Skill):
             state_event = await self.create_jitsi_widget(conference_id, domain)
             try:
                 await message.respond(state_event)
-            except MatrixRequestError as e:
-                if e.code == 403:
-                    if "M_FORBIDDEN" in e.content:
-                        await message.respond(
-                            Message(
-                                "I am sorry, I don't have permission to add widgets to this room."
-                            )
+            except MatrixException as e:
+                if "M_FORBIDDEN" in e.nio_error.status_code:
+                    await message.respond(
+                        Message(
+                            "I am sorry, I don't have permission to add widgets to this room."
                         )
-                        return
+                    )
+                    return
                 _LOGGER.exception("Failed to add Jitsi widget to room {message.target}")
 
     @match_regex(r"!endjitsi")
@@ -202,15 +193,14 @@ class JitsiSkill(Skill):
                         "im.vector.modular.widgets", content={}, state_key=state_key
                     )
                 )
-            except MatrixRequestError as e:
-                if e.code == 403:
-                    if "M_FORBIDDEN" in e.content:
-                        await message.respond(
-                            Message(
-                                "I am sorry, I don't have permission to remove widgets from this room."
-                            )
+            except MatrixException as e:
+                if "M_FORBIDDEN" in e.nio_error.status_code:
+                    await message.respond(
+                        Message(
+                            "I am sorry, I don't have permission to remove widgets from this room."
                         )
-                        return
+                    )
+                    return
                 _LOGGER.exception(
                     "Failed to remove Jitsi widget from room {message.target}"
                 )
@@ -266,7 +256,7 @@ class JitsiSkill(Skill):
                 "isAudioOnly": False,
                 "domain": domain,
             },
-            "url": f"https://riot.im/app/jitsi.html?confId={conference_id}#conferenceDomain=$domain&conferenceId=$conferenceId&isAudioOnly=$isAudioOnly&displayName=$matrix_display_name&avatarUrl=$matrix_avatar_url&userId=$matrix_user_id",
+            "url": f"https://app.element.io/jitsi.html?confId={conference_id}#conferenceDomain=$domain&conferenceId=$conferenceId&isAudioOnly=$isAudioOnly&displayName=$matrix_display_name&avatarUrl=$matrix_avatar_url&userId=$matrix_user_id",
         }
 
         return MatrixStateEvent(
@@ -275,14 +265,15 @@ class JitsiSkill(Skill):
             state_key=f"jitsi_{conference_id}",
         )
 
-    async def get_active_jitsi_widget(self, room_id, connector):
-        all_state = await connector.connection.get_room_state(room_id)
+    @staticmethod
+    async def get_active_jitsi_widget(room_id, connector):
+        all_state = await connector.connection.room_get_state(room_id)
         jitsi_widgets = list(
             filter(
                 lambda x: x["type"] == "im.vector.modular.widgets"
                 and x["content"]
                 and x["content"].get("type", "") == "jitsi",
-                all_state,
+                all_state.events,
             )
         )
 
