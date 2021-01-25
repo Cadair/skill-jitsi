@@ -4,11 +4,15 @@ An opsdroid skill for quickly sharing Jitsi call URLs.
 
 This skill currently requires the master branch of opsdroid for reacting to a new Jitsi widget on matrix.
 
-This skill provides two commands:
+This skill provides the following commands:
 
 `!jitsi` which optionally takes one argument, which is either the URL to a jitsi call or the name of the conference for the configured domain. It will then post a URL for the conference to the channel, and if the matrix connector is configured add a Jitsi widget to the room. If no arguments are given the room name will be used for the conference id.
 
 `!endjitsi` which removes a jitsi widget from a matrix room.
+
+`!setjitsiurl` Set a custom jitsi url for this room.
+
+`!unsetjitsiurl` Unset a custom jitsi url for this room.
 
 Also if a Jitsi widget is added to a matrix room the plain URL for that conference will be posted to the channel. (i.e. not through the riot wrapper).
 
@@ -33,6 +37,10 @@ connectors:
     rooms:
       "main": "#room:server.com"
     nick: Jitsi Bot
+
+database:
+  matrix:
+    single_state_key: false
 
 skills:
   jitsi:
@@ -68,9 +76,12 @@ skills:
     prefix_room_name: false
     # If the room name should be used to generate the call URL
     use_room_name: true
-    # Only respond to commands on the matrix connector. 
+    # Only respond to commands on the matrix connector.
     # (Useful if you are bridging and your opsdroid is connected to both sides of the bridge)
     listen_matrix_only: false
     # Join rooms when invited
     join_when_invited: false
+    # Alternatively the following only accepts invites from the listed homeservers
+    join_when_invited:
+      - matrix.org
 ```

@@ -3,13 +3,14 @@ import re
 from urllib.parse import urlparse
 
 import random_word
+from opsdroid.database.matrix import memory_in_event_room, DatabaseMatrix
 from opsdroid.connector.matrix.connector import (ConnectorMatrix,
                                                  MatrixException)
 from opsdroid.connector.matrix.events import MatrixStateEvent
 from opsdroid.connector.slack import ConnectorSlack
 from opsdroid.events import (JoinRoom, Message, PinMessage, UnpinMessage,
                              UserInvite)
-from opsdroid.matchers import match_event, match_regex
+from opsdroid.matchers import match_event, match_regex, match_parse
 from opsdroid.skill import Skill
 
 _LOGGER = logging.getLogger(__name__)
@@ -116,6 +117,31 @@ class JitsiSkill(Skill):
 
         return await self.send_and_pin_message(message, message_content)
 
+    @match_regex("!unsetjitsiurl")
+    @memory_in_event_room
+    async def unset_jitsi_url(self, message):
+        """
+        Store the desired URL in memory.
+        """
+        if not self.process_message(message):
+            return
+
+        await self.opsdroid.memory.delete("jitsi_url")
+
+    @match_parse(r"!setjitsiurl {jitsiurl}")
+    @memory_in_event_room
+    async def set_jitsi_url(self, message):
+        """
+        Store the desired URL in memory.
+        """
+        if not self.process_message(message):
+            return
+
+        if isinstance(message.connector, ConnectorMatrix):
+            jitsi_url = message.entities["jitsiurl"]["value"]
+            await message.respond(Message(f"Storing {jitsi_url} for this room."))
+            await self.opsdroid.memory.put("jitsi_url", jitsi_url)
+
     @match_regex(r"!jitsi( (?P<callid>[^\s]+))?")
     @memory_in_event_room
     async def start_jitsi_call(self, message):
@@ -159,7 +185,7 @@ class JitsiSkill(Skill):
                 conference_id = call_url.path.replace("/", "")
             elif self.conference_prefix:
                 conference_id = f"{self.conference_prefix}_{callid}"
-        else:
+        elif conference_id is None:
             conference_id = await self.get_call_name(message)
 
         await self.send_message_about_conference(message, conference_id, domain)
