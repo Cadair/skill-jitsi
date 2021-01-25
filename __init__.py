@@ -3,6 +3,7 @@ import re
 from urllib.parse import urlparse
 
 import random_word
+from nio.responses import ErrorResponse
 from opsdroid.database.matrix import memory_in_event_room, DatabaseMatrix
 from opsdroid.connector.matrix.connector import (ConnectorMatrix,
                                                  MatrixException)
@@ -87,8 +88,10 @@ class JitsiSkill(Skill):
                 used_room_name = True
                 room_id = message.connector.lookup_target(message.target)
                 slug = await message.connector.connection.room_get_state_event(room_id, "m.room.name")
-                slug = slug.content
-                slug = slug.get("name", "")
+                if not isinstance(slug, ErrorResponse):
+                    slug = slug.content
+                    slug = slug.get("name", "")
+                slug = ""
 
             if self.use_room_name and isinstance(message.connector, ConnectorSlack):
                 response = await message.connector.slack.channels_info(
